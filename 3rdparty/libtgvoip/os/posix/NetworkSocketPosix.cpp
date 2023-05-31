@@ -593,6 +593,11 @@ LOGW("CQNet5");
 	std::vector<NetworkSocket*>::iterator itr=readFds.begin();
 	while(itr!=readFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		LOGW("CQNet5.3 %d", sfd);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if(FD_ISSET(sfd, &readSet))
 			(*itr)->lastSuccessfulOperationTime=VoIPController::GetCurrentTime();
 		if(sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
@@ -600,11 +605,17 @@ LOGW("CQNet5");
 		}else{
 			++itr;
 		}
+		LOGW("CQNet5.4");
 	}
-
+LOGW("CQNet5.5");
 	itr=writeFds.begin();
 	while(itr!=writeFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		LOGW("CQNet5.6 %d", sfd);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if(sfd==0 || !FD_ISSET(sfd, &writeSet)){
 			itr=writeFds.erase(itr);
 		}else{
@@ -620,6 +631,10 @@ LOGW("CQNet6");
 	itr=errorFds.begin();
 	while(itr!=errorFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if((sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
 			itr=errorFds.erase(itr);
 		}else{
