@@ -99,10 +99,12 @@ VoIPController::~VoIPController() {
 }
 
 void VoIPController::start() {
+    py::gil_scoped_release release;
     ctrl->Start();
 }
 
 void VoIPController::connect() {
+    py::gil_scoped_release release;
     ctrl->Connect();
 }
 
