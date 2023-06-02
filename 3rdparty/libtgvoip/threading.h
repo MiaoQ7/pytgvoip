@@ -15,6 +15,7 @@
 #include <semaphore.h>
 #include <sched.h>
 #include <unistd.h>
+#include <iostream>
 #ifdef __APPLE__
 #include "os/darwin/DarwinSpecific.h"
 #endif
@@ -35,7 +36,9 @@ namespace tgvoip{
 		}
 
 		void Unlock(){
+			std::cout<<'---pthread_mutex_unlock start'<<std::endl;
 			pthread_mutex_unlock(&mtx);
+			std::cout<<'---pthread_mutex_unlock end'<<std::endl;
 		}
 
 		pthread_mutex_t* NativeHandle(){

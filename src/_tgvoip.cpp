@@ -39,6 +39,7 @@ VoIPController::VoIPController(const std::string &_persistent_state_file) : VoIP
 }
 
 void VoIPController::init() {
+    py::gil_scoped_release release;
     ctrl = new tgvoip::VoIPController();
     ctrl->implData = (void *)this;
     tgvoip::VoIPController::Callbacks callbacks {};
@@ -109,14 +110,17 @@ void VoIPController::connect() {
 }
 
 void VoIPController::set_proxy(const std::string &address, uint16_t port, const std::string &username, const std::string &password) {
+    py::gil_scoped_release release;
     ctrl->SetProxy(tgvoip::PROXY_SOCKS5, address, port, username, password);
 }
 
 void VoIPController::set_encryption_key(char *key, bool is_outgoing) {
+    py::gil_scoped_release release;
     ctrl->SetEncryptionKey(key, is_outgoing);
 }
 
 void VoIPController::set_remote_endpoints(std::list<Endpoint> endpoints, bool allow_p2p, bool tcp, int connection_max_layer) {
+    py::gil_scoped_release release;
     std::vector<tgvoip::Endpoint> eps;
     for (auto const &ep : endpoints) {
         tgvoip::IPv4Address v4addr(ep.ip);
@@ -134,14 +138,17 @@ void VoIPController::set_remote_endpoints(std::list<Endpoint> endpoints, bool al
 }
 
 std::string VoIPController::get_debug_string() {
+    py::gil_scoped_release release;
     return ctrl->GetDebugString();
 }
 
 void VoIPController::set_network_type(NetType type) {
+    py::gil_scoped_release release;
     ctrl->SetNetworkType(type);
 }
 
 void VoIPController::set_mic_mute(bool mute) {
+    py::gil_scoped_release release;
     ctrl->SetMicMute(mute);
 }
 
@@ -153,6 +160,7 @@ void VoIPController::set_config(double init_timeout, double recv_timeout, DataSa
                                 const std::wstring &log_file_path, const std::wstring &status_dump_path,
 #endif
                                 bool log_packet_stats) {
+    py::gil_scoped_release release;
     tgvoip::VoIPController::Config cfg;
     cfg.initTimeout = init_timeout;
     cfg.recvTimeout = recv_timeout;
@@ -170,18 +178,22 @@ void VoIPController::set_config(double init_timeout, double recv_timeout, DataSa
 }
 
 void VoIPController::debug_ctl(int request, int param) {
+    py::gil_scoped_release release;
     ctrl->DebugCtl(request, param);
 }
 
 long VoIPController::get_preferred_relay_id() {
+    py::gil_scoped_release release;
     return ctrl->GetPreferredRelayID();
 }
 
 CallError VoIPController::get_last_error() {
+    py::gil_scoped_release release;
     return CallError(ctrl->GetLastError());
 }
 
 Stats VoIPController::get_stats() {
+    py::gil_scoped_release release;
     tgvoip::VoIPController::TrafficStats _stats {};
     ctrl->GetStats(&_stats);
     return Stats {
@@ -193,22 +205,27 @@ Stats VoIPController::get_stats() {
 }
 
 std::string VoIPController::get_debug_log() {
+    py::gil_scoped_release release;
     return ctrl->GetDebugLog();
 }
 
 void VoIPController::set_audio_output_gain_control_enabled(bool enabled) {
+    py::gil_scoped_release release;
     ctrl->SetAudioOutputGainControlEnabled(enabled);
 }
 
 void VoIPController::set_echo_cancellation_strength(int strength) {
+    py::gil_scoped_release release;
     ctrl->SetEchoCancellationStrength(strength);
 }
 
 int VoIPController::get_peer_capabilities() {
+    py::gil_scoped_release release;
     return ctrl->GetPeerCapabilities();
 }
 
 bool VoIPController::need_rate() {
+    py::gil_scoped_release release;
     return ctrl->NeedRate();
 }
 
@@ -309,22 +326,27 @@ void VoIPController::_recv_audio_frame_native_impl(int16_t *buf, size_t size) {
 }
 
 std::string VoIPController::get_version(const py::object& /* cls */) {
+    py::gil_scoped_release release;
     return tgvoip::VoIPController::GetVersion();
 }
 
 int VoIPController::connection_max_layer(const py::object& /* cls */) {
+    py::gil_scoped_release release;
     return tgvoip::VoIPController::GetConnectionMaxLayer();
 }
 
 bool VoIPController::_native_io_get() {
+    py::gil_scoped_release release;
     return native_io;
 }
 
 void VoIPController::_native_io_set(bool status) {
+    py::gil_scoped_release release;
     native_io = status;
 }
 
 bool VoIPController::play(std::string &path) {
+    py::gil_scoped_release release;
     FILE *tmp = fopen(path.c_str(), "rb");
     if (tmp == nullptr) {
         std::cerr << "Unable to open file " << path << " for reading" << std::endl;
@@ -336,6 +358,7 @@ bool VoIPController::play(std::string &path) {
 }
 
 void VoIPController::play_on_hold(std::vector<std::string> &paths) {
+    py::gil_scoped_release release;
     clear_hold_queue();
     tgvoip::MutexGuard m(input_mutex);
     for (auto &path : paths) {
@@ -349,6 +372,7 @@ void VoIPController::play_on_hold(std::vector<std::string> &paths) {
 }
 
 bool VoIPController::set_output_file(std::string &path) {
+    py::gil_scoped_release release;
     FILE *tmp = fopen(path.c_str(), "wb");
     if (tmp == nullptr) {
         std::cerr << "Unable to open file " << path << " for writing" << std::endl;
@@ -385,5 +409,6 @@ void VoIPController::unset_output_file() {
 }
 
 void VoIPServerConfig::set_config(std::string &json_str) {
+    py::gil_scoped_release release;
     tgvoip::ServerConfig::GetSharedInstance()->Update(json_str);
 }
