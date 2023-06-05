@@ -518,23 +518,30 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 		FD_SET(canceller->pipeRead, &readSet);
 
 	int maxfd=canceller ? canceller->pipeRead : 0;
-
 	for(NetworkSocket*& s:readFds){
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
 		}
+		if (sfd == -1) {
+			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
+			return false;
+		}
 		FD_SET(sfd, &readSet);
-		if(maxfd<sfd)
+		if(maxfd<sfd) {
 			maxfd=sfd;
+		}
 	}
-
 	for(NetworkSocket*& s:writeFds){
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
+		}
+		if (sfd == -1) {
+			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
+			return false;
 		}
 		FD_SET(sfd, &writeSet);
 		if(maxfd<sfd)
@@ -542,12 +549,15 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	}
 
 	bool anyFailed=false;
-
 	for(NetworkSocket*& s:errorFds){
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
+		}
+		if (sfd == -1) {
+			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
+			return false;
 		}
 		if(s->timeout>0 && VoIPController::GetCurrentTime()-s->lastSuccessfulOperationTime>s->timeout){
 			LOGW("Socket %d timed out", sfd);
@@ -558,7 +568,6 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 		if(maxfd<sfd)
 			maxfd=sfd;
 	}
-
 	select(maxfd+1, &readSet, &writeSet, &errorSet, NULL);
 
 	if(canceller && FD_ISSET(canceller->pipeRead, &readSet) && !anyFailed){
@@ -569,10 +578,13 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 		FD_ZERO(&readSet);
 		FD_ZERO(&writeSet);
 	}
-
 	std::vector<NetworkSocket*>::iterator itr=readFds.begin();
 	while(itr!=readFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if(FD_ISSET(sfd, &readSet))
 			(*itr)->lastSuccessfulOperationTime=VoIPController::GetCurrentTime();
 		if(sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
@@ -581,10 +593,13 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 			++itr;
 		}
 	}
-
 	itr=writeFds.begin();
 	while(itr!=writeFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if(sfd==0 || !FD_ISSET(sfd, &writeSet)){
 			itr=writeFds.erase(itr);
 		}else{
@@ -596,10 +611,13 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 				itr=writeFds.erase(itr);
 		}
 	}
-
 	itr=errorFds.begin();
 	while(itr!=errorFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
+		if (sfd == -1) {
+			++itr;
+			continue;
+		}
 		if((sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
 			itr=errorFds.erase(itr);
 		}else{

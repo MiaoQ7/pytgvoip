@@ -33,6 +33,8 @@ add_definitions(
         -DTGVOIP_USE_CALLBACK_AUDIO_IO
         -DWITHOUT_ALSA
         -DWITHOUT_PULSE
+        -DTGVOIP_NO_DSP
+        -DDESKTOP_APP_DISABLE_WEBRTC_INTEGRATION
 )
 
 add_subdirectory(3rdparty/pybind11)
