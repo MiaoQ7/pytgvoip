@@ -15,9 +15,10 @@
 #include <semaphore.h>
 #include <sched.h>
 #include <unistd.h>
-#include <iostream>
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #include "os/darwin/DarwinSpecific.h"
+#elif defined(__FreeBSD__) || defined(__OpenBSD__)
+#include <pthread_np.h>
 #endif
 
 namespace tgvoip{
@@ -36,9 +37,7 @@ namespace tgvoip{
 		}
 
 		void Unlock(){
-			std::cout<<'---pthread_mutex_unlock start'<<std::endl;
 			pthread_mutex_unlock(&mtx);
-			std::cout<<'---pthread_mutex_unlock end'<<std::endl;
 		}
 
 		pthread_mutex_t* NativeHandle(){
@@ -95,9 +94,11 @@ namespace tgvoip{
 		static void* ActualEntryPoint(void* arg){
 			Thread* self=reinterpret_cast<Thread*>(arg);
 			if(self->name){
-#if !defined(__APPLE__) && !defined(__gnu_hurd__)
+#if defined(__linux__) || defined(__FreeBSD__)
 				pthread_setname_np(self->thread, self->name);
-#elif !defined(__gnu_hurd__)
+#elif defined(__OpenBSD__)
+				pthread_set_name_np(self->thread, self->name);
+#elif defined(__APPLE__)
 				pthread_setname_np(self->name);
 				if(self->maxPriority){
 					DarwinSpecific::SetCurrentThreadPriority(DarwinSpecific::THREAD_PRIO_USER_INTERACTIVE);
@@ -191,6 +192,7 @@ private:
 #endif
 
 #elif defined(_WIN32)
+#define TGVOIP_WIN32_THREADING
 
 #include <Windows.h>
 #include <assert.h>

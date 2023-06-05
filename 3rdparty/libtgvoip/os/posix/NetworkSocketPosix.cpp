@@ -507,50 +507,34 @@ void NetworkSocketPosix::SetTimeouts(int sendTimeout, int recvTimeout){
 }
 
 bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vector<NetworkSocket*>& writeFds, std::vector<NetworkSocket *> &errorFds, SocketSelectCanceller* _canceller){
-	LOGW("CQNet1");
 	fd_set readSet;
 	fd_set writeSet;
 	fd_set errorSet;
 	FD_ZERO(&readSet);
 	FD_ZERO(&writeSet);
 	FD_ZERO(&errorSet);
-	LOGW("CQNet1.4");
 	SocketSelectCancellerPosix* canceller=dynamic_cast<SocketSelectCancellerPosix*>(_canceller);
 	if(canceller)
 		FD_SET(canceller->pipeRead, &readSet);
 
 	int maxfd=canceller ? canceller->pipeRead : 0;
-LOGW("CQNet1.5");
+
 	for(NetworkSocket*& s:readFds){
-		LOGW("CQNet1.6");
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
 		}
-		LOGW("CQNet1.7 %d %d", sfd, readSet);
-		if (sfd == -1) {
-			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
-			return false;
-		}
 		FD_SET(sfd, &readSet);
-		LOGW("CQNet1.75");
-		if(maxfd<sfd) {
-		LOGW("CQNet1.76");
+		if(maxfd<sfd)
 			maxfd=sfd;
-		}
-		LOGW("CQNet1.8");
 	}
-LOGW("CQNet2");
+
 	for(NetworkSocket*& s:writeFds){
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
-		}
-		if (sfd == -1) {
-			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
-			return false;
 		}
 		FD_SET(sfd, &writeSet);
 		if(maxfd<sfd)
@@ -558,16 +542,12 @@ LOGW("CQNet2");
 	}
 
 	bool anyFailed=false;
-LOGW("CQNet3");
+
 	for(NetworkSocket*& s:errorFds){
 		int sfd=GetDescriptorFromSocket(s);
 		if(sfd==0){
 			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance");
 			continue;
-		}
-		if (sfd == -1) {
-			LOGW("can't select on one of sockets because it's not a NetworkSocketPosix instance 2");
-			return false;
 		}
 		if(s->timeout>0 && VoIPController::GetCurrentTime()-s->lastSuccessfulOperationTime>s->timeout){
 			LOGW("Socket %d timed out", sfd);
@@ -578,7 +558,7 @@ LOGW("CQNet3");
 		if(maxfd<sfd)
 			maxfd=sfd;
 	}
-LOGW("CQNet4");
+
 	select(maxfd+1, &readSet, &writeSet, &errorSet, NULL);
 
 	if(canceller && FD_ISSET(canceller->pipeRead, &readSet) && !anyFailed){
@@ -589,15 +569,10 @@ LOGW("CQNet4");
 		FD_ZERO(&readSet);
 		FD_ZERO(&writeSet);
 	}
-LOGW("CQNet5");
+
 	std::vector<NetworkSocket*>::iterator itr=readFds.begin();
 	while(itr!=readFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		LOGW("CQNet5.3 %d", sfd);
-		if (sfd == -1) {
-			++itr;
-			continue;
-		}
 		if(FD_ISSET(sfd, &readSet))
 			(*itr)->lastSuccessfulOperationTime=VoIPController::GetCurrentTime();
 		if(sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
@@ -605,17 +580,11 @@ LOGW("CQNet5");
 		}else{
 			++itr;
 		}
-		LOGW("CQNet5.4");
 	}
-LOGW("CQNet5.5");
+
 	itr=writeFds.begin();
 	while(itr!=writeFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		LOGW("CQNet5.6 %d", sfd);
-		if (sfd == -1) {
-			++itr;
-			continue;
-		}
 		if(sfd==0 || !FD_ISSET(sfd, &writeSet)){
 			itr=writeFds.erase(itr);
 		}else{
@@ -627,14 +596,10 @@ LOGW("CQNet5.5");
 				itr=writeFds.erase(itr);
 		}
 	}
-LOGW("CQNet6");
+
 	itr=errorFds.begin();
 	while(itr!=errorFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		if (sfd == -1) {
-			++itr;
-			continue;
-		}
 		if((sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
 			itr=errorFds.erase(itr);
 		}else{

@@ -5,15 +5,16 @@
 //
 
 #include "OpusDecoder.h"
+#include "EchoCanceller.h"
 #include "audio/Resampler.h"
 #include "logging.h"
 #include <assert.h>
 #include <math.h>
 #include <algorithm>
-#if defined HAVE_CONFIG_H || defined TGVOIP_USE_INSTALLED_OPUS
+#if TGVOIP_INCLUDE_OPUS_PACKAGE
 #include <opus/opus.h>
 #else
-#include "opus.h"
+#include <opus.h>
 #endif
 
 #include "VoIPController.h"
@@ -67,7 +68,6 @@ void tgvoip::OpusDecoder::Initialize(bool isAsync, bool needEC){
 	remainingDataLen=0;
 	processedBuffer=NULL;
 	prevWasEC=false;
-	prevLastSample=0;
 }
 
 tgvoip::OpusDecoder::~OpusDecoder(){
@@ -234,7 +234,6 @@ int tgvoip::OpusDecoder::DecodeNextFrame(){
 			}
 		}
 		prevWasEC=isEC;
-		prevLastSample=decodeBuffer[size-1];
 	}else{ // do packet loss concealment
 		consecutiveLostPackets++;
 		if(consecutiveLostPackets>2 && enableDTX){

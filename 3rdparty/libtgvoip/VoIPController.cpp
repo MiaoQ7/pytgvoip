@@ -12,6 +12,7 @@
 #include <string.h>
 #include <wchar.h>
 #include "VoIPController.h"
+#include "EchoCanceller.h"
 #include "logging.h"
 #include "threading.h"
 #include "Buffers.h"
@@ -29,10 +30,10 @@
 #include <sstream>
 #include <inttypes.h>
 #include <float.h>
-#if defined HAVE_CONFIG_H || defined TGVOIP_USE_INSTALLED_OPUS
+#if TGVOIP_INCLUDE_OPUS_PACKAGE
 #include <opus/opus.h>
 #else
-#include "opus.h"
+#include <opus.h>
 #endif
 
 
@@ -78,7 +79,10 @@ VoIPController::VoIPController() : activeNetItfName(""),
 								   currentAudioOutput("default"),
 								   proxyAddress(""),
 								   proxyUsername(""),
-								   proxyPassword(""){
+								   proxyPassword(""),
+								   outputVolume(std::make_unique<effects::Volume>()),
+								   inputVolume(std::make_unique<effects::Volume>())
+{
 	seq=1;
 	lastRemoteSeq=0;
 	state=STATE_WAIT_INIT;
@@ -258,18 +262,10 @@ void VoIPController::Stop(){
 		delete sendThread;
 	}
 	LOGD("before join recvThread");
-	try {
-		LOGD("before join recvThread1");
-		if(recvThread){
-			LOGD("before join recvThread2");
-			recvThread->Join();
-			delete recvThread;
-		}
-		LOGD("before join recvThread3");
-	}catch(const char* &e) {
-		LOGD("before join recvThread4");
+	if(recvThread){
+		recvThread->Join();
+		delete recvThread;
 	}
-	
 	LOGD("before stop messageThread");
 	messageThread.Stop();
 	{
@@ -887,11 +883,11 @@ vector<uint8_t> VoIPController::GetPersistentState(){
 }
 
 void VoIPController::SetOutputVolume(float level){
-	outputVolume.SetLevel(level);
+	outputVolume->SetLevel(level);
 }
 
 void VoIPController::SetInputVolume(float level){
-	inputVolume.SetLevel(level);
+	inputVolume->SetLevel(level);
 }
 
 #if defined(__APPLE__) && TARGET_OS_OSX
@@ -1122,6 +1118,11 @@ void VoIPController::InitializeAudio(){
 	shared_ptr<Stream> outgoingAudioStream=GetStreamByType(STREAM_TYPE_AUDIO, true);
 	LOGI("before create audio io");
 	audioIO=audio::AudioIO::Create(currentAudioInput, currentAudioOutput);
+    if(audioIO->Failed()){
+        lastError=ERROR_AUDIO_IO;
+        SetState(STATE_FAILED);
+        return;
+    }
 	audioInput=audioIO->GetInput();
 	audioOutput=audioIO->GetOutput();
 #ifdef __ANDROID__
@@ -1148,7 +1149,7 @@ void VoIPController::InitializeAudio(){
 	encoder->SetEchoCanceller(echoCanceller);
 	encoder->SetSecondaryEncoderEnabled(false);
 	if(config.enableVolumeControl){
-		encoder->AddAudioEffect(&inputVolume);
+		encoder->AddAudioEffect(inputVolume.get());
 	}
 
 #if defined(TGVOIP_USE_CALLBACK_AUDIO_IO)
@@ -1174,7 +1175,7 @@ void VoIPController::StartAudio(){
 	if(!micMuted){
 		audioInput->Start();
 		if(!audioInput->IsInitialized()){
-			LOGE("Erorr initializing audio capture");
+			LOGE("Error initializing audio capture");
 			lastError=ERROR_AUDIO_IO;
 
 			SetState(STATE_FAILED);
@@ -1189,7 +1190,7 @@ void VoIPController::OnAudioOutputReady(){
 	stm->decoder=make_shared<OpusDecoder>(audioOutput, true, peerVersion>=6);
 	stm->decoder->SetEchoCanceller(echoCanceller);
 	if(config.enableVolumeControl){
-		stm->decoder->AddAudioEffect(&outputVolume);
+		stm->decoder->AddAudioEffect(outputVolume.get());
 	}
 	stm->decoder->SetJitterBuffer(stm->jitterBuffer);
 	stm->decoder->SetFrameDuration(stm->frameDuration);
@@ -1528,190 +1529,182 @@ void VoIPController::InitUDPProxy(){
 
 void VoIPController::RunRecvThread(){
 	LOGI("Receive thread starting");
-	try{
-		Buffer buffer(1500);
-		NetworkPacket packet={0};
-		if(proxyProtocol==PROXY_SOCKS5){
-			resolvedProxyAddress=NetworkSocket::ResolveDomainName(proxyAddress);
-			if(!resolvedProxyAddress){
-				LOGW("Error resolving proxy address %s", proxyAddress.c_str());
+	Buffer buffer(1500);
+	NetworkPacket packet={0};
+	if(proxyProtocol==PROXY_SOCKS5){
+		resolvedProxyAddress=NetworkSocket::ResolveDomainName(proxyAddress);
+		if(!resolvedProxyAddress){
+			LOGW("Error resolving proxy address %s", proxyAddress.c_str());
+			SetState(STATE_FAILED);
+			return;
+		}
+	}else{
+		udpConnectivityState=UDP_PING_PENDING;
+		udpPingTimeoutID=messageThread.Post(std::bind(&VoIPController::SendUdpPings, this), 0.0, 0.5);
+	}
+	while(runReceiver){
+
+		if(proxyProtocol==PROXY_SOCKS5 && needReInitUdpProxy){
+			InitUDPProxy();
+			needReInitUdpProxy=false;
+		}
+
+		packet.data=*buffer;
+		packet.length=buffer.Length();
+
+		vector<NetworkSocket*> readSockets;
+		vector<NetworkSocket*> errorSockets;
+		vector<NetworkSocket*> writeSockets;
+		readSockets.push_back(udpSocket);
+		errorSockets.push_back(realUdpSocket);
+		if(!realUdpSocket->IsReadyToSend())
+			writeSockets.push_back(realUdpSocket);
+
+		{
+			MutexGuard m(endpointsMutex);
+			for(pair<const int64_t, Endpoint>& _e:endpoints){
+				const Endpoint& e=_e.second;
+				if(e.type==Endpoint::Type::TCP_RELAY){
+					if(e.socket){
+						readSockets.push_back(e.socket);
+						errorSockets.push_back(e.socket);
+						if(!e.socket->IsReadyToSend()){
+							NetworkSocketSOCKS5Proxy* proxy=dynamic_cast<NetworkSocketSOCKS5Proxy*>(e.socket);
+							if(!proxy || proxy->NeedSelectForSending())
+    							writeSockets.push_back(e.socket);
+						}
+					}
+				}
+			}
+		}
+
+		{
+			MutexGuard m(socketSelectMutex);
+			bool selRes=NetworkSocket::Select(readSockets, writeSockets, errorSockets, selectCanceller);
+			if(!selRes){
+				LOGV("Select canceled");
+				continue;
+			}
+		}
+		if(!runReceiver)
+			return;
+
+		if(!errorSockets.empty()){
+			if(find(errorSockets.begin(), errorSockets.end(), realUdpSocket)!=errorSockets.end()){
+				LOGW("UDP socket failed");
 				SetState(STATE_FAILED);
 				return;
 			}
-		}else{
-			udpConnectivityState=UDP_PING_PENDING;
-			udpPingTimeoutID=messageThread.Post(std::bind(&VoIPController::SendUdpPings, this), 0.0, 0.5);
-		}
-		while(runReceiver){
-
-			if(proxyProtocol==PROXY_SOCKS5 && needReInitUdpProxy){
-				InitUDPProxy();
-				needReInitUdpProxy=false;
+			MutexGuard m(endpointsMutex);
+			for(NetworkSocket*& socket:errorSockets){
+				for(pair<const int64_t, Endpoint>& _e:endpoints){
+					Endpoint& e=_e.second;
+					if(e.socket && e.socket==socket){
+						e.socket->Close();
+						delete e.socket;
+						e.socket=NULL;
+						LOGI("Closing failed TCP socket for %s:%u", e.GetAddress().ToString().c_str(), e.port);
+					}
+				}
 			}
-			LOGW("CQ1");
-			packet.data=*buffer;
-			packet.length=buffer.Length();
+			continue;
+		}
 
-			vector<NetworkSocket*> readSockets;
-			vector<NetworkSocket*> errorSockets;
-			vector<NetworkSocket*> writeSockets;
-			readSockets.push_back(udpSocket);
-			errorSockets.push_back(realUdpSocket);
-			if(!realUdpSocket->IsReadyToSend())
-				writeSockets.push_back(realUdpSocket);
+		for(NetworkSocket*& socket:readSockets){
+			//while(packet.length){
+			packet.length=1500;
+			socket->Receive(&packet);
+			if(!packet.address){
+				LOGE("Packet has null address. This shouldn't happen.");
+				continue;
+			}
+			size_t len=packet.length;
+			if(!len){
+				LOGE("Packet has zero length.");
+				continue;
+			}
+			//LOGV("Received %d bytes from %s:%d at %.5lf", len, packet.address->ToString().c_str(), packet.port, GetCurrentTime());
+			int64_t srcEndpointID=0;
 
-			{
+			IPv4Address *src4=dynamic_cast<IPv4Address *>(packet.address);
+			if(src4){
 				MutexGuard m(endpointsMutex);
 				for(pair<const int64_t, Endpoint>& _e:endpoints){
 					const Endpoint& e=_e.second;
-					if(e.type==Endpoint::Type::TCP_RELAY){
-						if(e.socket){
-							readSockets.push_back(e.socket);
-							errorSockets.push_back(e.socket);
-							if(!e.socket->IsReadyToSend()){
-								NetworkSocketSOCKS5Proxy* proxy=dynamic_cast<NetworkSocketSOCKS5Proxy*>(e.socket);
-								if(!proxy || proxy->NeedSelectForSending())
-										writeSockets.push_back(e.socket);
-							}
+					if(e.address==*src4 && e.port==packet.port){
+						if((e.type!=Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_UDP) || (e.type==Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_TCP)){
+							srcEndpointID=e.id;
+							break;
 						}
 					}
 				}
-			}
-LOGW("CQ2");
-			{
-				MutexGuard m(socketSelectMutex);
-				LOGW("CQ2.3");
-				bool selRes=NetworkSocket::Select(readSockets, writeSockets, errorSockets, selectCanceller);
-				LOGW("CQ2.4");
-				if(!selRes){
-					LOGV("Select canceled");
-					continue;
-				}
-			}
-LOGW("CQ2.5");
-			if(!runReceiver)
-				return;
-LOGW("CQ2.6");
-			if(!errorSockets.empty()){
-				if(find(errorSockets.begin(), errorSockets.end(), realUdpSocket)!=errorSockets.end()){
-					LOGW("UDP socket failed");
-					SetState(STATE_FAILED);
-					return;
-				}
-LOGW("CQ2.7");
-				MutexGuard m(endpointsMutex);
-				for(NetworkSocket*& socket:errorSockets){
-					for(pair<const int64_t, Endpoint>& _e:endpoints){
-						Endpoint& e=_e.second;
-						if(e.socket && e.socket==socket){
-							e.socket->Close();
-							delete e.socket;
-							e.socket=NULL;
-							LOGI("Closing failed TCP socket for %s:%u", e.GetAddress().ToString().c_str(), e.port);
+				if(!srcEndpointID && packet.protocol==PROTO_UDP){
+					try{
+						Endpoint &p2p=GetEndpointByType(Endpoint::Type::UDP_P2P_INET);
+						if(p2p.rtts[0]==0.0 && p2p.address.PrefixMatches(24, *packet.address)){
+							LOGD("Packet source matches p2p endpoint partially: %s:%u", packet.address->ToString().c_str(), packet.port);
+							srcEndpointID=p2p.id;
 						}
-					}
+					}catch(out_of_range&){}
 				}
-				continue;
-			}
-LOGW("CQ3");
-			for(NetworkSocket*& socket:readSockets){
-				//while(packet.length){
-				packet.length=1500;
-				socket->Receive(&packet);
-				if(!packet.address){
-					LOGE("Packet has null address. This shouldn't happen.");
-					continue;
-				}
-				size_t len=packet.length;
-				if(!len){
-					LOGE("Packet has zero length.");
-					continue;
-				}
-				//LOGV("Received %d bytes from %s:%d at %.5lf", len, packet.address->ToString().c_str(), packet.port, GetCurrentTime());
-				int64_t srcEndpointID=0;
-LOGW("CQ6")
-				IPv4Address *src4=dynamic_cast<IPv4Address *>(packet.address);
-				if(src4){
+			}else{
+				IPv6Address *src6=dynamic_cast<IPv6Address *>(packet.address);
+				if(src6){
 					MutexGuard m(endpointsMutex);
-					for(pair<const int64_t, Endpoint>& _e:endpoints){
+					for(pair<const int64_t, Endpoint> &_e:endpoints){
 						const Endpoint& e=_e.second;
-						if(e.address==*src4 && e.port==packet.port){
+						if(e.v6address==*src6 && e.port==packet.port && e.IsIPv6Only()){
 							if((e.type!=Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_UDP) || (e.type==Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_TCP)){
 								srcEndpointID=e.id;
 								break;
 							}
 						}
 					}
-					if(!srcEndpointID && packet.protocol==PROTO_UDP){
-						try{
-							Endpoint &p2p=GetEndpointByType(Endpoint::Type::UDP_P2P_INET);
-							if(p2p.rtts[0]==0.0 && p2p.address.PrefixMatches(24, *packet.address)){
-								LOGD("Packet source matches p2p endpoint partially: %s:%u", packet.address->ToString().c_str(), packet.port);
-								srcEndpointID=p2p.id;
-							}
-						}catch(out_of_range& ex){}
-					}
-				}else{
-					IPv6Address *src6=dynamic_cast<IPv6Address *>(packet.address);
-					if(src6){
-						MutexGuard m(endpointsMutex);
-						for(pair<const int64_t, Endpoint> &_e:endpoints){
-							const Endpoint& e=_e.second;
-							if(e.v6address==*src6 && e.port==packet.port && e.IsIPv6Only()){
-								if((e.type!=Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_UDP) || (e.type==Endpoint::Type::TCP_RELAY && packet.protocol==PROTO_TCP)){
-									srcEndpointID=e.id;
-									break;
-								}
-							}
-						}
-					}
 				}
-LOGW("CQ5")
-				if(!srcEndpointID){
-					LOGW("Received a packet from unknown source %s:%u", packet.address->ToString().c_str(), packet.port);
-					continue;
-				}
-				if(len<=0){
-					//LOGW("error receiving: %d / %s", errno, strerror(errno));
-					continue;
-				}
-				if(IS_MOBILE_NETWORK(networkType))
-					stats.bytesRecvdMobile+=(uint64_t) len;
-				else
-					stats.bytesRecvdWifi+=(uint64_t) len;
-				try{
-					ProcessIncomingPacket(packet, endpoints.at(srcEndpointID));
-				}catch(out_of_range& x){
-					LOGW("Error parsing packet: %s", x.what());
-				}
-				//}
 			}
-LOGW("CQ4");
-			for(vector<PendingOutgoingPacket>::iterator opkt=sendQueue.begin();opkt!=sendQueue.end();){
-				Endpoint* endpoint=GetEndpointForPacket(*opkt);
-				if(!endpoint){
-					opkt=sendQueue.erase(opkt);
-					LOGE("SendQueue contained packet for nonexistent endpoint");
-					continue;
-				}
-				bool canSend;
-				if(endpoint->type!=Endpoint::Type::TCP_RELAY)
-					canSend=realUdpSocket->IsReadyToSend();
-				else
-					canSend=endpoint->socket && endpoint->socket->IsReadyToSend();
-				if(canSend){
-					LOGI("Sending queued packet");
-					SendOrEnqueuePacket(move(*opkt), false);
-					opkt=sendQueue.erase(opkt);
-				}else{
-					++opkt;
-				}
+
+			if(!srcEndpointID){
+				LOGW("Received a packet from unknown source %s:%u", packet.address->ToString().c_str(), packet.port);
+				continue;
+			}
+			if(len<=0){
+				//LOGW("error receiving: %d / %s", errno, strerror(errno));
+				continue;
+			}
+			if(IS_MOBILE_NETWORK(networkType))
+				stats.bytesRecvdMobile+=(uint64_t) len;
+			else
+				stats.bytesRecvdWifi+=(uint64_t) len;
+			try{
+				ProcessIncomingPacket(packet, endpoints.at(srcEndpointID));
+			}catch(out_of_range& x){
+				LOGW("Error parsing packet: %s", x.what());
+			}
+			//}
+		}
+
+		for(vector<PendingOutgoingPacket>::iterator opkt=sendQueue.begin();opkt!=sendQueue.end();){
+			Endpoint* endpoint=GetEndpointForPacket(*opkt);
+			if(!endpoint){
+				opkt=sendQueue.erase(opkt);
+				LOGE("SendQueue contained packet for nonexistent endpoint");
+				continue;
+			}
+			bool canSend;
+			if(endpoint->type!=Endpoint::Type::TCP_RELAY)
+				canSend=realUdpSocket->IsReadyToSend();
+			else
+				canSend=endpoint->socket && endpoint->socket->IsReadyToSend();
+			if(canSend){
+				LOGI("Sending queued packet");
+				SendOrEnqueuePacket(move(*opkt), false);
+				opkt=sendQueue.erase(opkt);
+			}else{
+				++opkt;
 			}
 		}
-		LOGI("=== recv thread exiting ===");
-	} catch(const char* &e) {
-		LOGI("=== recv thread ERROR exiting ===");
 	}
+	LOGI("=== recv thread exiting ===");
 }
 
 bool VoIPController::WasOutgoingPacketAcknowledged(uint32_t seq){
@@ -2732,7 +2725,7 @@ Endpoint* VoIPController::GetEndpointForPacket(const PendingOutgoingPacket& pkt)
 	if(pkt.endpoint){
 		try{
 			endpoint=&endpoints.at(pkt.endpoint);
-		}catch(out_of_range& x){
+		}catch(out_of_range&){
 			LOGW("Unable to send packet via nonexistent endpoint %" PRIu64, pkt.endpoint);
 			return NULL;
 		}
@@ -3021,7 +3014,7 @@ static void initMachTimestart() {
 #endif
 
 double VoIPController::GetCurrentTime(){
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return ts.tv_sec+(double)ts.tv_nsec/1000000000.0;
@@ -3948,7 +3941,7 @@ Endpoint::~Endpoint(){
 #pragma mark - AudioInputTester
 
 AudioInputTester::AudioInputTester(std::string deviceID) : deviceID(std::move(deviceID)){
-	io=audio::AudioIO::Create(deviceID, "default");
+	io=audio::AudioIO::Create(this->deviceID, "default");
 	if(io->Failed()){
 		LOGE("Audio IO failed");
 		return;
