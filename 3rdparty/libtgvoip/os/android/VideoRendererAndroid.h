@@ -40,7 +40,7 @@ namespace tgvoip{
 			};
 			void RunThread();
 			Thread* thread=NULL;
-			bool running=true;
+			volatile bool running=true;
 			BlockingQueue<Request> queue;
 			std::vector<Buffer> csd;
 			int width;

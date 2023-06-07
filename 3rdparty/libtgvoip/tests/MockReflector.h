@@ -41,7 +41,7 @@ namespace tgvoip{
 			std::unordered_map<uint64_t, ClientPair> clients; // clients are identified by the first half of their peer_tag
 			int sfd;
 			pthread_t thread;
-			bool running=false;
+			volatile bool running=false;
 			bool dropAllPackets=false;
 		};
 	}

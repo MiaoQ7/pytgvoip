@@ -29,7 +29,7 @@ public:
 
 private:
 	jobject javaObject;
-	bool running;
+	volatile bool running;
 
 };
 }}

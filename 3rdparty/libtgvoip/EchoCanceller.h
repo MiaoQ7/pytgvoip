@@ -51,7 +51,7 @@ private:
 	Thread* bufferFarendThread;
 	BlockingQueue<int16_t*>* farendQueue;
 	BufferPool* farendBufferPool;
-	bool running;
+	volatile bool running;
 #endif
 };
 

@@ -66,7 +66,7 @@ private:
 	BufferPool bufferPool;
 	EchoCanceller* echoCanceller;
 	int complexity;
-	bool running;
+	volatile bool running;
 	uint32_t frameDuration;
 	int packetLossPercent;
 	AudioLevelMeter* levelMeter;

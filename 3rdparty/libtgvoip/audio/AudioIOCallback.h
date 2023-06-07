@@ -23,7 +23,7 @@ namespace tgvoip{
 			void SetDataCallback(std::function<void(int16_t*, size_t)> c);
 		private:
 			void RunThread();
-			bool running=false;
+			volatile bool running=false;
 			bool recording=false;
 			Thread* thread;
 			std::function<void(int16_t*, size_t)> dataCallback;
@@ -39,7 +39,7 @@ namespace tgvoip{
 			void SetDataCallback(std::function<void(int16_t*, size_t)> c);
 		private:
 			void RunThread();
-			bool running=false;
+			volatile bool running=false;
 			bool playing=false;
 			Thread* thread;
 			std::function<void(int16_t*, size_t)> dataCallback;

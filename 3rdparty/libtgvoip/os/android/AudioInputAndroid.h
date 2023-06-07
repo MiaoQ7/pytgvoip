@@ -33,7 +33,7 @@ public:
 
 private:
 	jobject javaObject;
-	bool running;
+	volatile bool running;
 	Mutex mutex;
 	unsigned int enabledEffects=0;
 

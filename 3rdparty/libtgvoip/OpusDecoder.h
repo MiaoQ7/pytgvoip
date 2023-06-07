@@ -61,7 +61,7 @@ private:
 	unsigned char* lastDecoded;
 	unsigned char* processedBuffer;
 	size_t outputBufferSize;
-	bool running;
+	volatile bool running;
     Thread* thread;
 	Semaphore* semaphore;
 	uint32_t frameDuration;

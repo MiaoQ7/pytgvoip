@@ -58,9 +58,10 @@ void MessageThread::Stop(){
 void MessageThread::Run(){
 	queueMutex.Lock();
 	while(running){
+		LOGW("MessageThread iteration");
 		double currentTime=VoIPController::GetCurrentTime();
 		double waitTimeout=queue.empty() ? DBL_MAX : (queue[0].deliverAt-currentTime);
-		//LOGW("MessageThread wait timeout %f", waitTimeout);
+		LOGW("MessageThread wait timeout %f", waitTimeout);
 		if(waitTimeout>0.0){
 #ifdef TGVOIP_WIN32_THREADING
 			queueMutex.Unlock();
@@ -74,6 +75,7 @@ void MessageThread::Run(){
 			// since any new no-delay messages will get delivered on this iteration anyway
 			queueMutex.Lock();
 #else
+			LOGW("MessageThread wait");
 			if(waitTimeout!=DBL_MAX){
 				struct timeval now;
 				struct timespec timeout;
@@ -88,10 +90,12 @@ void MessageThread::Run(){
 			}
 #endif
 		}
+		LOGW("MessageThread woke up");
 		if(!running){
 			queueMutex.Unlock();
 			return;
 		}
+		LOGW("MessageThread woke up 2");
 		currentTime=VoIPController::GetCurrentTime();
 		std::vector<Message> msgsToDeliverNow;
 		for(std::vector<Message>::iterator m=queue.begin();m!=queue.end();){
@@ -102,21 +106,24 @@ void MessageThread::Run(){
 			}
 			++m;
 		}
-
+		LOGW("MessageThread delivering %d messages", (int)msgsToDeliverNow.size());
 		for(Message& m:msgsToDeliverNow){
-			//LOGI("MessageThread delivering %u", m.msg);
+			// LOGI("MessageThread delivering %u", m.msg);
+			LOGW("MessageThread delivering message");
 			cancelCurrent=false;
 			if(m.deliverAt==0.0)
 				m.deliverAt=VoIPController::GetCurrentTime();
 			if(m.func!=nullptr){
 				m.func();
 			}
+			LOGW("MessageThread delivered message");
 			if(!cancelCurrent && m.interval>0.0){
 				m.deliverAt+=m.interval;
 				InsertMessageInternal(m);
 			}
+			LOGW("MessageThread done with message");
 		}
-
+		LOGW("MessageThread done");
 	}
 	queueMutex.Unlock();
 }

@@ -59,7 +59,7 @@ private:
 		BlockingQueue<unsigned char*> processedQueue;
 		Semaphore semaphore;
 		EchoCanceller* echoCanceller;
-		bool running;
+		volatile bool running;
 	};
 
 	class CallbackWrapper : public MediaStreamItf{

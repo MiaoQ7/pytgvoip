@@ -35,7 +35,7 @@ namespace tgvoip{
 		void Run();
 		void InsertMessageInternal(Message& m);
 
-		bool running=true;
+		volatile bool running=true;
 		std::vector<Message> queue;
 		Mutex queueMutex;
 		uint32_t lastMessageID=1;

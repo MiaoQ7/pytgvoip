@@ -629,7 +629,7 @@ namespace tgvoip{
 		int64_t currentEndpoint=0;
 		int64_t preferredRelay=0;
 		int64_t peerPreferredRelay=0;
-		bool runReceiver;
+		volatile bool runReceiver;
 		std::atomic<uint32_t> seq;
 		uint32_t lastRemoteSeq;
 		uint32_t lastRemoteAckSeq;
