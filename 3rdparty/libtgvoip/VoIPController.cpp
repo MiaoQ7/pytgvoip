@@ -936,8 +936,11 @@ void VoIPController::InitializeTimers(){
 }
 
 void VoIPController::RunSendThread(){
+	LOGI("=== send thread started ===");
 	InitializeAudio();
+	LOGI("=== InitializeTimers ===");
 	InitializeTimers();
+	LOGI("=== SendInit ===");
 	SendInit();
 	LOGI("=== send thread exiting ===");
 }
@@ -1188,13 +1191,18 @@ void VoIPController::OnAudioOutputReady(){
 	LOGI("Audio I/O ready");
 	shared_ptr<Stream>& stm=incomingStreams[0];
 	stm->decoder=make_shared<OpusDecoder>(audioOutput, true, peerVersion>=6);
+	LOGI("Audio I/O ready 1");
 	stm->decoder->SetEchoCanceller(echoCanceller);
 	if(config.enableVolumeControl){
 		stm->decoder->AddAudioEffect(outputVolume.get());
 	}
+	LOGI("Audio I/O ready 2");
 	stm->decoder->SetJitterBuffer(stm->jitterBuffer);
+	LOGI("Audio I/O ready 3");
 	stm->decoder->SetFrameDuration(stm->frameDuration);
+	LOGI("Audio I/O ready 4");
 	stm->decoder->Start();
+	LOGI("Audio I/O ready 5");
 }
 
 void VoIPController::UpdateAudioOutputState(){
