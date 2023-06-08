@@ -83,7 +83,7 @@ void VoIPController::init() {
 }
 
 VoIPController::~VoIPController() {
-    
+    pybind11::gil_scoped_release gil;
     ctrl->Stop();
     std::vector<uint8_t> state = ctrl->GetPersistentState();
     delete ctrl;
