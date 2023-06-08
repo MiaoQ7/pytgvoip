@@ -319,20 +319,22 @@ void VoIPController::SetRemoteEndpoints(vector<Endpoint> endpoints, bool allowP2
 
 void VoIPController::Start(){
 	LOGW("Starting voip controller");
-	udpSocket->Open();
-	if(udpSocket->IsFailed()){
-		SetState(STATE_FAILED);
-		return;
-	}
+	if (!runReceiver) {
+		udpSocket->Open();
+		if(udpSocket->IsFailed()){
+			SetState(STATE_FAILED);
+			return;
+		}
 
 	//SendPacket(NULL, 0, currentEndpoint);
+	
+		runReceiver=true;
+		recvThread=new Thread(bind(&VoIPController::RunRecvThread, this));
+		recvThread->SetName("VoipRecv");
+		recvThread->Start();
 
-	runReceiver=true;
-	recvThread=new Thread(bind(&VoIPController::RunRecvThread, this));
-	recvThread->SetName("VoipRecv");
-	recvThread->Start();
-
-	messageThread.Start();
+		messageThread.Start();
+	}
 }
 
 
@@ -1551,16 +1553,10 @@ void VoIPController::RunRecvThread(){
 		udpPingTimeoutID=messageThread.Post(std::bind(&VoIPController::SendUdpPings, this), 0.0, 0.5);
 	}
 	while(runReceiver){
-		// 每一行打一个日志
-		LOGV("Receive thread iteration");
 		if(proxyProtocol==PROXY_SOCKS5 && needReInitUdpProxy){
-			LOGI("Reinitializing UDP proxy");
 			InitUDPProxy();
-			LOGI("UDP proxy reinitialized");
 			needReInitUdpProxy=false;
-			LOGI("Reinitializing UDP proxy done");
 		}
-		LOGV("Receive thread iteration 1");
 
 		packet.data=*buffer;
 		packet.length=buffer.Length();
@@ -1573,21 +1569,15 @@ void VoIPController::RunRecvThread(){
 		if(!realUdpSocket->IsReadyToSend())
 			writeSockets.push_back(realUdpSocket);
 
-		LOGD("Selecting");
 		{
 			MutexGuard m(endpointsMutex);
-			LOGD("Selecting 1");
 			for(pair<const int64_t, Endpoint>& _e:endpoints){
 				const Endpoint& e=_e.second;
 				if(e.type==Endpoint::Type::TCP_RELAY){
-					LOGD("Selecting 2");
 					if(e.socket){
-						LOGD("Selecting 3");
 						readSockets.push_back(e.socket);
 						errorSockets.push_back(e.socket);
-						LOGD("Selecting 4");
 						if(!e.socket->IsReadyToSend()){
-							LOGD("Selecting 5");
 							NetworkSocketSOCKS5Proxy* proxy=dynamic_cast<NetworkSocketSOCKS5Proxy*>(e.socket);
 							if(!proxy || proxy->NeedSelectForSending())
     							writeSockets.push_back(e.socket);
@@ -1596,36 +1586,27 @@ void VoIPController::RunRecvThread(){
 				}
 			}
 		}
-		LOGD("Selecting 6");
 		{
 			MutexGuard m(socketSelectMutex);
 			bool selRes=NetworkSocket::Select(readSockets, writeSockets, errorSockets, selectCanceller);
-			LOGD("Selecting 7");
 			if(!selRes){
-				LOGV("Select canceled");
 				continue;
 			}
 		}
 		if(!runReceiver)
 			return;
 
-		LOGD("Selecting done");
 		if(!errorSockets.empty()){
-			LOGD("Selecting 8");
 			if(find(errorSockets.begin(), errorSockets.end(), realUdpSocket)!=errorSockets.end()){
 				LOGW("UDP socket failed");
 				SetState(STATE_FAILED);
 				return;
 			}
-			LOGD("Selecting 9");
 			MutexGuard m(endpointsMutex);
 			for(NetworkSocket*& socket:errorSockets){
-				LOGD("Selecting 10");
 				for(pair<const int64_t, Endpoint>& _e:endpoints){
-					LOGD("Selecting 11");
 					Endpoint& e=_e.second;
 					if(e.socket && e.socket==socket){
-						LOGD("Selecting 12");
 						e.socket->Close();
 						delete e.socket;
 						e.socket=NULL;
@@ -1635,7 +1616,6 @@ void VoIPController::RunRecvThread(){
 			}
 			continue;
 		}
-		LOGD("Selecting 13");
 		for(NetworkSocket*& socket:readSockets){
 			//while(packet.length){
 			packet.length=1500;
@@ -1708,7 +1688,6 @@ void VoIPController::RunRecvThread(){
 			}
 			//}
 		}
-		LOGD("Selecting 14");
 
 		for(vector<PendingOutgoingPacket>::iterator opkt=sendQueue.begin();opkt!=sendQueue.end();){
 			Endpoint* endpoint=GetEndpointForPacket(*opkt);
@@ -1730,7 +1709,6 @@ void VoIPController::RunRecvThread(){
 				++opkt;
 			}
 		}
-		LOGD("Selecting 15");
 	}
 	LOGI("=== recv thread exiting ===");
 }

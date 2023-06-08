@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <netinet/tcp.h>
@@ -568,8 +569,16 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 		if(maxfd<sfd)
 			maxfd=sfd;
 	}
-	select(maxfd+1, &readSet, &writeSet, &errorSet, NULL);
-
+	// 设置超时时间 10s
+	timeval timeout;
+	gettimeofday(&timeout, NULL);
+	timeout.tv_sec = timeout.tv_sec + 10;
+	int i = select(maxfd+1, &readSet, &writeSet, &errorSet, &timeout);
+	if (i <= 0) {
+		LOGW("select error");
+		return false;
+	}
+	LOGW("select 1");
 	if(canceller && FD_ISSET(canceller->pipeRead, &readSet) && !anyFailed){
 		char c;
 		(void) read(canceller->pipeRead, &c, 1);
@@ -581,13 +590,15 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	std::vector<NetworkSocket*>::iterator itr=readFds.begin();
 	while(itr!=readFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		if (sfd == -1) {
-			++itr;
+		if (sfd == -1 || sfd==0) {
+			itr=readFds.erase(itr);
 			continue;
 		}
+		LOGW("select 2");
 		if(FD_ISSET(sfd, &readSet))
 			(*itr)->lastSuccessfulOperationTime=VoIPController::GetCurrentTime();
-		if(sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
+		LOGW("select 3");
+		if(sfd == -1 || sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
 			itr=readFds.erase(itr);
 		}else{
 			++itr;
@@ -596,11 +607,8 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	itr=writeFds.begin();
 	while(itr!=writeFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		if (sfd == -1) {
-			++itr;
-			continue;
-		}
-		if(sfd==0 || !FD_ISSET(sfd, &writeSet)){
+		LOGW("select 4");
+		if(sfd == -1 || sfd==0 || !FD_ISSET(sfd, &writeSet)){
 			itr=writeFds.erase(itr);
 		}else{
 			LOGV("Socket %d is ready to send", sfd);
@@ -614,11 +622,8 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	itr=errorFds.begin();
 	while(itr!=errorFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		if (sfd == -1) {
-			++itr;
-			continue;
-		}
-		if((sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
+		LOGW("select 5");
+		if((sfd == -1 || sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
 			itr=errorFds.erase(itr);
 		}else{
 			++itr;

@@ -61,14 +61,18 @@ namespace tgvoip{
 		}
 
 		void Start(){
-			if(pthread_create(&thread, NULL, Thread::ActualEntryPoint, this)==0){
-				valid=true;
+			if (!valid) {
+				if(pthread_create(&thread, NULL, Thread::ActualEntryPoint, this)==0){
+					valid=true;
+				}
 			}
 		}
 
 		void Join(){
-			if(valid)
+			if(valid) {
 				pthread_join(thread, NULL);
+				valid = false;
+			}
 		}
 
 		void SetName(const char* name){
