@@ -578,7 +578,7 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 		LOGW("select error");
 		return false;
 	}
-	LOGW("select 1");
+	// LOGW("select 1");
 	if(canceller && FD_ISSET(canceller->pipeRead, &readSet) && !anyFailed){
 		char c;
 		(void) read(canceller->pipeRead, &c, 1);
@@ -594,10 +594,10 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 			itr=readFds.erase(itr);
 			continue;
 		}
-		LOGW("select 2");
+		// LOGW("select 2");
 		if(FD_ISSET(sfd, &readSet))
 			(*itr)->lastSuccessfulOperationTime=VoIPController::GetCurrentTime();
-		LOGW("select 3");
+		// LOGW("select 3");
 		if(sfd == -1 || sfd==0 || !FD_ISSET(sfd, &readSet) || !(*itr)->OnReadyToReceive()){
 			itr=readFds.erase(itr);
 		}else{
@@ -607,7 +607,7 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	itr=writeFds.begin();
 	while(itr!=writeFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		LOGW("select 4");
+		// LOGW("select 4");
 		if(sfd == -1 || sfd==0 || !FD_ISSET(sfd, &writeSet)){
 			itr=writeFds.erase(itr);
 		}else{
@@ -622,7 +622,7 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 	itr=errorFds.begin();
 	while(itr!=errorFds.end()){
 		int sfd=GetDescriptorFromSocket(*itr);
-		LOGW("select 5");
+		// LOGW("select 5");
 		if((sfd == -1 || sfd==0 || !FD_ISSET(sfd, &errorSet)) && !(*itr)->IsFailed()){
 			itr=errorFds.erase(itr);
 		}else{

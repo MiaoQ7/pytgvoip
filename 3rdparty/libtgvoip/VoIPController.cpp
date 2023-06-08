@@ -1412,6 +1412,7 @@ void VoIPController::WritePacketHeader(uint32_t pseq, BufferOutputStream *s, uns
 
 
 void VoIPController::SendInit(){
+	LOGI("===Sending init====");
 	{
 		MutexGuard m(endpointsMutex);
 		uint32_t initSeq=GenerateOutSeq();
